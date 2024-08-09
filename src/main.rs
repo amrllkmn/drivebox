@@ -5,9 +5,7 @@ use serde_json::{json, Value};
 async fn main() {
     let app = Router::new().route("/", get(healthcheck_handler));
 
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:3000")
-        .await
-        .unwrap();
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await.unwrap();
 
     println!("listening on {}", listener.local_addr().unwrap());
     axum::serve(listener, app).await.unwrap();
