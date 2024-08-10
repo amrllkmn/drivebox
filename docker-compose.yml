@@ -10,3 +10,16 @@ services:
       POSTGRES_DB: drivebox_dev
     volumes:
       - ./tmp/db:/var/lib/postgresql/data
+
+  drivebox_service:
+    image: drivebox:0.0.1
+    ports:
+      - 8080:8080
+    environment:
+      PORT: 8080 # Set the port for your Axum app
+      DATABASE_URL: postgres://postgres:postgres@postgres_dev:5432/drivebox_dev
+    depends_on:
+      - postgres_dev
+    build:
+      context: .
+      dockerfile: Dockerfile
