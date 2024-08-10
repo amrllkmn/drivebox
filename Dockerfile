@@ -1,6 +1,7 @@
 # Leveraging the pre-built Docker images with
 # cargo-chef and the Rust toolchain
-FROM lukemathwalker/cargo-chef:latest-rust-1.72.0 AS chef
+# must match the rust version you are developing with
+FROM lukemathwalker/cargo-chef:latest-rust-1.76 AS chef
 WORKDIR /app
 
 FROM chef AS planner
@@ -15,6 +16,7 @@ RUN cargo chef cook --recipe-path recipe.json
 COPY . .
 RUN cargo build --release
 
-FROM rust:1.72-slim AS template-rust
+# We do not need the Rust toolchain to run the binary!
+FROM debian:bookworm-slim AS runtime 
 COPY --from=builder /app/target/release/drivebox /usr/local/bin
 ENTRYPOINT ["/usr/local/bin/drivebox"]
