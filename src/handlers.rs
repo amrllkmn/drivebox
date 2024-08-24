@@ -1,24 +1,28 @@
+use crate::{user::User, AppState};
 use axum::{
     extract::{Query, State},
     http::StatusCode,
     response::{IntoResponse, Redirect},
     Json,
 };
-use oauth2::{
-    basic::BasicClient, reqwest::async_http_client, AuthorizationCode, CsrfToken, Scope,
-    TokenResponse,
-};
+use oauth2::{reqwest::async_http_client, AuthorizationCode, CsrfToken, Scope, TokenResponse};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use sqlx::{query_as, FromRow, Pool, Postgres};
+use sqlx::{Pool, Postgres};
 
-#[derive(Debug, Deserialize, Serialize, FromRow)]
-struct User {
-    id: i32,
-    name: String,
-    verified: bool,
-    created_at: chrono::DateTime<chrono::Utc>,
-    updated_at: chrono::DateTime<chrono::Utc>,
+async fn handle_user(pool: Pool<Postgres>, user_info: UserInfo) -> (StatusCode, Json<Value>) {
+    let result = User::create(&pool, user_info).await;
+
+    match result {
+        Ok(user) => (StatusCode::OK, Json(json!(user))),
+        Err(err) => {
+            println!("{:?}", err);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"message":"Something went wrong"})),
+            )
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -31,10 +35,10 @@ pub struct AuthRequest {
 #[derive(Debug, Deserialize, Serialize)]
 #[allow(dead_code)]
 pub struct UserInfo {
-    email: String,
-    verified_email: bool,
-    name: String,
-    given_name: String,
+    pub email: String,
+    pub verified_email: bool,
+    pub name: String,
+    pub given_name: String,
     picture: String,
 }
 
@@ -43,7 +47,7 @@ pub async fn healthcheck() -> (StatusCode, Json<Value>) {
 }
 
 // an endpoint to
-pub async fn register(State(client): State<BasicClient>) -> impl IntoResponse {
+pub async fn register(State(app_state): State<AppState>) -> impl IntoResponse {
     // 1. form the parameters
     // 2. redirect to the auth server
     let scopes = [
@@ -51,7 +55,8 @@ pub async fn register(State(client): State<BasicClient>) -> impl IntoResponse {
         Scope::new("https://www.googleapis.com/auth/userinfo.profile".to_string()),
     ];
 
-    let (auth_url, _) = client
+    let (auth_url, _) = app_state
+        .client
         .authorize_url(CsrfToken::new_random)
         .add_scopes(scopes)
         .url();
@@ -61,10 +66,11 @@ pub async fn register(State(client): State<BasicClient>) -> impl IntoResponse {
 
 pub async fn callback(
     Query(query): Query<AuthRequest>,
-    State(client): State<BasicClient>,
+    State(app_state): State<AppState>,
 ) -> (StatusCode, Json<Value>) {
     // get access token
-    let token = client
+    let token = app_state
+        .client
         .exchange_code(AuthorizationCode::new(query.code.clone()))
         .request_async(async_http_client)
         .await
@@ -86,7 +92,7 @@ pub async fn callback(
                     .await
                     .expect("Failed to deserialise data");
 
-                (StatusCode::OK, Json(json!(user_info)))
+                handle_user(app_state.database, user_info).await
             } else {
                 (
                     resp.status(),
@@ -105,12 +111,9 @@ pub async fn callback(
     // store user data
 }
 
-pub async fn get_users(State(pool): State<Pool<Postgres>>) -> (StatusCode, Json<Value>) {
-    let results = query_as::<_, User>("SELECT * FROM users ORDER BY updated_at DESC")
-        .fetch_all(&pool)
-        .await;
-
-    match results {
+pub async fn get_users(State(app_state): State<AppState>) -> (StatusCode, Json<Value>) {
+    let users = User::get_all(&app_state.database).await;
+    match users {
         Ok(users) => (StatusCode::OK, Json(json! {users})),
         Err(_) => (
             StatusCode::INTERNAL_SERVER_ERROR,

@@ -1,14 +1,29 @@
 mod handlers;
 mod routes;
+mod user;
 
+use axum::extract::FromRef;
 use dotenv::dotenv;
 use oauth2::{basic::BasicClient, AuthUrl, ClientId, ClientSecret, RedirectUrl, TokenUrl};
 use sqlx::{postgres::PgPoolOptions, Pool, Postgres};
 use std::env;
 
+#[derive(Debug, Clone)]
 pub struct AppState {
     database: Pool<Postgres>,
     client: BasicClient,
+}
+
+impl FromRef<AppState> for Pool<Postgres> {
+    fn from_ref(state: &AppState) -> Self {
+        state.database.clone()
+    }
+}
+
+impl FromRef<AppState> for BasicClient {
+    fn from_ref(state: &AppState) -> Self {
+        state.client.clone()
+    }
 }
 #[tokio::main]
 async fn main() {
@@ -35,7 +50,7 @@ async fn main() {
         .run(&app_state.database)
         .await
         .expect("Migrating went wrong");
-    let app = routes::create_api_route(app_state.database, app_state.client);
+    let app = routes::create_api_route(app_state);
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
 
     println!("listening on {}", listener.local_addr().unwrap());
